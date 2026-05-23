@@ -1,28 +1,14 @@
-云端生成 APK 操作说明
+v5.2 云端生成 APK 说明
 
-目标：
-不用本地 Android Studio，不受 Astrill / Java / Gradle 本机环境影响。
-通过 GitHub Actions 在线生成 APK。
+本版修复 Android APK 无声音问题：
+- 增强 Android 原生 TextToSpeech 初始化
+- 自动选择离线英文语音
+- TTS 未准备好时会提示“语音引擎启动中”
 
-步骤：
-1. 注册或登录 GitHub。
-2. 新建一个仓库，例如 children-english-vocab-android。
-3. 上传本项目文件夹里的全部内容。
-   你应该能看到：
-   - settings.gradle
-   - build.gradle
-   - app 文件夹
-   - .github 文件夹
-4. 打开仓库页面的 Actions。
-5. 选择 Build Android APK。
-6. 点击 Run workflow。
-7. 等 3~8 分钟。
-8. 构建完成后，打开本次 workflow 结果页。
-9. 在 Artifacts 区域下载 children-english-vocab-v5-1-debug-apk。
-10. 解压后得到 app-debug.apk。
-11. 发送到安卓平板安装。
-
-说明：
-- 这是 debug APK，适合自用、测试、班级小范围分发。
-- 授权码仍使用原 v4.3 同一套。
-- 发音使用 Android 原生 TextToSpeech。
+更新 GitHub：
+1. 解压本包。
+2. 进入 GitHub 仓库 → Add file → Upload files。
+3. 上传本包全部文件，覆盖旧文件。
+4. Commit message：update android tts v5.2
+5. 等 Actions 自动构建。
+6. 下载 Artifacts：children-english-vocab-v5-2-debug-apk

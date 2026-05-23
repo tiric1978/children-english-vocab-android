@@ -5,7 +5,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.speech.tts.TextToSpeech;
-import android.speech.tts.Voice;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -15,37 +14,24 @@ import android.webkit.ValueCallback;
 import android.content.Intent;
 import android.net.Uri;
 import android.widget.Toast;
+
 import java.util.Locale;
-import java.util.Set;
 
 public class MainActivity extends Activity {
+
     private WebView webView;
     private TextToSpeech tts;
     private boolean ttsReady = false;
-    private String pendingText = null;
-    private String pendingKind = "word";
+    private final Handler handler = new Handler(Looper.getMainLooper());
+
     private ValueCallback<Uri[]> filePathCallback;
     private static final int FILE_CHOOSER_REQUEST = 1001;
-    private final Handler handler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        tts = new TextToSpeech(this, status -> {
-            if (status == TextToSpeech.SUCCESS) {
-                setupVoice();
-                ttsReady = true;
-                if (pendingText != null) {
-                    String t = pendingText;
-                    String k = pendingKind;
-                    pendingText = null;
-                    handler.postDelayed(() -> speakNow(t, k), 300);
-                }
-            } else {
-                Toast.makeText(this, "语音引擎初始化失败，请检查系统文字转语音设置。", Toast.LENGTH_LONG).show();
-            }
-        });
+        initTTS();
 
         webView = new WebView(this);
         setContentView(webView);
@@ -63,92 +49,253 @@ public class MainActivity extends Activity {
 
         webView.addJavascriptInterface(new AndroidTTSBridge(), "AndroidTTS");
         webView.setWebViewClient(new WebViewClient());
+
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
-            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams params) {
-                if (filePathCallback != null) filePathCallback.onReceiveValue(null);
+            public boolean onShowFileChooser(
+                    WebView webView,
+                    ValueCallback<Uri[]> callback,
+                    FileChooserParams params) {
+
+                if (filePathCallback != null) {
+                    filePathCallback.onReceiveValue(null);
+                }
+
                 filePathCallback = callback;
-                try { startActivityForResult(params.createIntent(), FILE_CHOOSER_REQUEST); }
-                catch (Exception e) { filePathCallback = null; return false; }
+
+                try {
+                    startActivityForResult(params.createIntent(), FILE_CHOOSER_REQUEST);
+                } catch (Exception e) {
+                    filePathCallback = null;
+                    return false;
+                }
+
                 return true;
             }
         });
 
         webView.loadUrl("file:///android_asset/index.html");
+
+        // delayed warmup
+        handler.postDelayed(() -> warmupTTS(), 1200);
+        handler.postDelayed(() -> warmupTTS(), 3000);
     }
 
-    private void setupVoice() {
-        if (tts == null) return;
-        int r = tts.setLanguage(Locale.US);
-        try {
-            Set<Voice> voices = tts.getVoices();
-            if (voices != null) {
-                for (Voice v : voices) {
-                    Locale l = v.getLocale();
-                    if (l != null && "en".equalsIgnoreCase(l.getLanguage()) && !v.isNetworkConnectionRequired()) {
-                        tts.setVoice(v);
-                        break;
-                    }
-                }
+    private void initTTS() {
+        tts = new TextToSpeech(this, status -> {
+
+            if (status == TextToSpeech.SUCCESS) {
+
+                try {
+                    tts.setLanguage(Locale.US);
+                } catch (Exception ignored) {}
+
+                try {
+                    tts.setSpeechRate(0.85f);
+                    tts.setPitch(1.0f);
+                } catch (Exception ignored) {}
+
+                ttsReady = true;
+
+                // warmup once ready
+                handler.postDelayed(() -> warmupTTS(), 600);
+
+            } else {
+
+                Toast.makeText(
+                        this,
+                        "系统语音引擎初始化失败",
+                        Toast.LENGTH_LONG
+                ).show();
             }
-        } catch (Exception ignored) {}
-        tts.setSpeechRate(0.82f);
-        tts.setPitch(1.0f);
+        });
     }
 
-    private void speakNow(String text, String kind) {
-        if (tts == null || text == null || text.trim().isEmpty()) return;
-        setupVoice();
-        tts.stop();
-        tts.setSpeechRate("sentence".equals(kind) ? 0.90f : 0.82f);
-        String s = text.trim();
-        if ("word".equals(kind) && !s.matches(".*[.!?。？！]$")) s += ".";
-        tts.speak(s, TextToSpeech.QUEUE_FLUSH, null, "vocab_" + System.currentTimeMillis());
+    private void warmupTTS() {
+
+        if (tts == null || !ttsReady) return;
+
+        try {
+            tts.speak(
+                    "hello",
+                    TextToSpeech.QUEUE_FLUSH,
+                    null,
+                    "warmup"
+            );
+        } catch (Exception ignored) {}
+    }
+
+    private void speakInternal(String text, String kind) {
+
+        if (text == null) return;
+
+        String raw = text.trim();
+
+        if (raw.isEmpty()) return;
+
+        if (tts == null) {
+            initTTS();
+            return;
+        }
+
+        if (!ttsReady) {
+
+            Toast.makeText(
+                    this,
+                    "语音引擎启动中",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            // auto retry after short delay
+            handler.postDelayed(() -> {
+                try {
+                    speakInternal(raw, kind);
+                } catch (Exception ignored) {}
+            }, 1200);
+
+            return;
+        }
+
+        try {
+
+            tts.stop();
+
+            if ("sentence".equals(kind)) {
+                tts.setSpeechRate(0.92f);
+            } else {
+                tts.setSpeechRate(0.85f);
+            }
+
+            String speakText = raw;
+
+            if ("word".equals(kind)) {
+                speakText = raw + ".";
+            }
+
+            tts.speak(
+                    speakText,
+                    TextToSpeech.QUEUE_FLUSH,
+                    null,
+                    "tts_" + System.currentTimeMillis()
+            );
+
+        } catch (Exception e) {
+
+            Toast.makeText(
+                    this,
+                    "语音播放失败",
+                    Toast.LENGTH_SHORT
+            ).show();
+        }
     }
 
     public class AndroidTTSBridge {
+
         @JavascriptInterface
         public void speak(String text, String kind) {
+
             runOnUiThread(() -> {
-                if (!ttsReady) {
-                    pendingText = text;
-                    pendingKind = kind == null ? "word" : kind;
-                    Toast.makeText(MainActivity.this, "语音引擎启动中，请稍等后再试。", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                speakNow(text, kind == null ? "word" : kind);
+                speakInternal(text, kind == null ? "word" : kind);
             });
         }
+
         @JavascriptInterface
         public void stop() {
-            runOnUiThread(() -> { if (tts != null) tts.stop(); });
+
+            runOnUiThread(() -> {
+                try {
+                    if (tts != null) tts.stop();
+                } catch (Exception ignored) {}
+            });
+        }
+
+        @JavascriptInterface
+        public void test() {
+
+            runOnUiThread(() -> {
+
+                try {
+
+                    if (!ttsReady) {
+                        warmupTTS();
+                    }
+
+                    speakInternal("hello world", "sentence");
+
+                } catch (Exception ignored) {}
+            });
         }
     }
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
+
+        if (webView != null && webView.canGoBack()) {
+            webView.goBack();
+        } else {
+            super.onBackPressed();
+        }
     }
+
     @Override
     protected void onPause() {
-        if (tts != null) tts.stop();
+
+        try {
+            if (tts != null) tts.stop();
+        } catch (Exception ignored) {}
+
         super.onPause();
     }
+
     @Override
     protected void onDestroy() {
-        if (webView != null) webView.destroy();
-        if (tts != null) { tts.stop(); tts.shutdown(); }
+
+        try {
+
+            if (webView != null) {
+                webView.destroy();
+            }
+
+            if (tts != null) {
+                tts.stop();
+                tts.shutdown();
+            }
+
+        } catch (Exception ignored) {}
+
         super.onDestroy();
     }
+
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    protected void onActivityResult(
+            int requestCode,
+            int resultCode,
+            Intent data) {
+
         if (requestCode == FILE_CHOOSER_REQUEST) {
+
             if (filePathCallback == null) return;
+
             Uri[] results = null;
-            if (resultCode == Activity.RESULT_OK && data != null && data.getData() != null) results = new Uri[]{data.getData()};
+
+            if (
+                    resultCode == Activity.RESULT_OK &&
+                    data != null &&
+                    data.getData() != null
+            ) {
+                results = new Uri[]{data.getData()};
+            }
+
             filePathCallback.onReceiveValue(results);
             filePathCallback = null;
-        } else super.onActivityResult(requestCode, resultCode, data);
+
+        } else {
+
+            super.onActivityResult(
+                    requestCode,
+                    resultCode,
+                    data
+            );
+        }
     }
 }

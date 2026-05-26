@@ -13,7 +13,6 @@ import android.webkit.WebChromeClient;
 import android.webkit.ValueCallback;
 import android.content.Intent;
 import android.net.Uri;
-import android.widget.Toast;
 
 import java.util.Locale;
 
@@ -23,7 +22,6 @@ public class MainActivity extends Activity {
     private TextToSpeech tts;
     private boolean ttsReady = false;
     private boolean ttsFailed = false;
-    private final Handler handler = new Handler(Looper.getMainLooper());
 
     private ValueCallback<Uri[]> filePathCallback;
     private static final int FILE_CHOOSER_REQUEST = 1001;
@@ -116,7 +114,6 @@ public class MainActivity extends Activity {
         }
 
         if (!ttsReady) {
-            // Do not loop or repeatedly toast. JS layer can choose another engine.
             return;
         }
 

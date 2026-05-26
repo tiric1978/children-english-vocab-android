@@ -22,6 +22,7 @@ public class MainActivity extends Activity {
     private WebView webView;
     private TextToSpeech tts;
     private boolean ttsReady = false;
+    private boolean ttsFailed = false;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private ValueCallback<Uri[]> filePathCallback;
@@ -75,19 +76,16 @@ public class MainActivity extends Activity {
         });
 
         webView.loadUrl("file:///android_asset/index.html");
-
-        // delayed warmup
-        handler.postDelayed(() -> warmupTTS(), 1200);
-        handler.postDelayed(() -> warmupTTS(), 3000);
     }
 
     private void initTTS() {
-        tts = new TextToSpeech(this, status -> {
+        ttsFailed = false;
 
+        tts = new TextToSpeech(this, status -> {
             if (status == TextToSpeech.SUCCESS) {
 
                 try {
-                    tts.setLanguage(Locale.US);
+                    tts.setLanguage(Locale.UK);
                 } catch (Exception ignored) {}
 
                 try {
@@ -97,32 +95,11 @@ public class MainActivity extends Activity {
 
                 ttsReady = true;
 
-                // warmup once ready
-                handler.postDelayed(() -> warmupTTS(), 600);
-
             } else {
-
-                Toast.makeText(
-                        this,
-                        "系统语音引擎初始化失败",
-                        Toast.LENGTH_LONG
-                ).show();
+                ttsReady = false;
+                ttsFailed = true;
             }
         });
-    }
-
-    private void warmupTTS() {
-
-        if (tts == null || !ttsReady) return;
-
-        try {
-            tts.speak(
-                    "hello",
-                    TextToSpeech.QUEUE_FLUSH,
-                    null,
-                    "warmup"
-            );
-        } catch (Exception ignored) {}
     }
 
     private void speakInternal(String text, String kind) {
@@ -139,20 +116,7 @@ public class MainActivity extends Activity {
         }
 
         if (!ttsReady) {
-
-            Toast.makeText(
-                    this,
-                    "语音引擎启动中",
-                    Toast.LENGTH_SHORT
-            ).show();
-
-            // auto retry after short delay
-            handler.postDelayed(() -> {
-                try {
-                    speakInternal(raw, kind);
-                } catch (Exception ignored) {}
-            }, 1200);
-
+            // Do not loop or repeatedly toast. JS layer can choose another engine.
             return;
         }
 
@@ -168,8 +132,8 @@ public class MainActivity extends Activity {
 
             String speakText = raw;
 
-            if ("word".equals(kind)) {
-                speakText = raw + ".";
+            if ("word".equals(kind) && !speakText.matches(".*[.!?。？！]$")) {
+                speakText = speakText + ".";
             }
 
             tts.speak(
@@ -180,12 +144,7 @@ public class MainActivity extends Activity {
             );
 
         } catch (Exception e) {
-
-            Toast.makeText(
-                    this,
-                    "语音播放失败",
-                    Toast.LENGTH_SHORT
-            ).show();
+            ttsFailed = true;
         }
     }
 
@@ -193,7 +152,6 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void speak(String text, String kind) {
-
             runOnUiThread(() -> {
                 speakInternal(text, kind == null ? "word" : kind);
             });
@@ -201,7 +159,6 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void stop() {
-
             runOnUiThread(() -> {
                 try {
                     if (tts != null) tts.stop();
@@ -211,19 +168,19 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void test() {
-
             runOnUiThread(() -> {
-
-                try {
-
-                    if (!ttsReady) {
-                        warmupTTS();
-                    }
-
-                    speakInternal("hello world", "sentence");
-
-                } catch (Exception ignored) {}
+                speakInternal("hello", "word");
             });
+        }
+
+        @JavascriptInterface
+        public boolean isReady() {
+            return ttsReady;
+        }
+
+        @JavascriptInterface
+        public boolean hasFailed() {
+            return ttsFailed;
         }
     }
 
